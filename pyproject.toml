@@ -7,6 +7,15 @@ dependencies = ["pandas>=2.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# Modeling extras (MentalBERT baseline). Install with: pip install -e ".[modeling]"
+# See requirements.txt for the CUDA-wheel note when using a local GPU.
+modeling = [
+    "torch>=2.2",
+    "transformers>=4.40",
+    "accelerate>=0.26.0",
+    "scikit-learn>=1.4",
+    "numpy>=1.24",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

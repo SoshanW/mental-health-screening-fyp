@@ -1,6 +1,10 @@
 # Data — large, license-restricted; never commit
 Datasets/
 
+# Model checkpoints, splits, predictions — large & regenerable; never commit.
+# (On Colab these live on Google Drive instead; this ignore covers local runs.)
+Models/
+
 # Python
 __pycache__/
 *.py[cod]
