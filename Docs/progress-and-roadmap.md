@@ -10,11 +10,14 @@ Read the TL;DR, then jump to §5 "Next action when you resume."_
 - **Done & verified:** the data-ingestion + harmonization layer (`src/data/`). Loads
   all three datasets, harmonizes labels, emits one canonical table. 31/31 tests pass;
   `python -m src.data` loads 140,086 rows.
-- **Done but NOT yet verified:** the MentalBERT baseline classifier
-  (`src/modeling/`) — all code, tests, deps, and a Colab notebook are written, but
-  **no dependencies are installed and no test/training run has happened yet.**
-- **Immediately next:** install deps and run the test suite (§5), then run the Colab
-  notebook to actually fine-tune MentalBERT.
+- **Done & verified (2026-07-03):** the MentalBERT baseline classifier
+  (`src/modeling/`) code is verified locally — light deps (`scikit-learn`, `numpy`)
+  installed in `.venv`, `pytest -q` → **48 passed, 2 skipped** (the 2 skips are the
+  torch-only dataset/predict tests). All files are committed and pushed to
+  `SoshanW/mental-health-screening-fyp` (`main` @ `c8e79de`).
+- **Immediately next:** run the Colab notebook (§5 Step C) to actually fine-tune
+  MentalBERT and produce the checkpoint + held-out predictions + per-condition
+  confusion matrix. **No training run has happened yet.**
 - **Big picture:** this baseline is rung 1 of a longer research pipeline (noise
   modeling → calibrated abstention → shift evaluation). See §7.
 
@@ -153,15 +156,14 @@ for the later shift evaluation. Folding it in would leak/mislabel.
 
 ## 5. ▶ NEXT ACTION when you resume (start here)
 
-**Step A — verify the code (local, fast).** Install the light test deps and run the
-suite. The torch-dependent tests self-skip if torch isn't installed:
+**Step A — verify the code (local, fast). ✅ DONE 2026-07-03.** Installed the light
+test deps and ran the suite:
 ```bash
 ./.venv/Scripts/python.exe -m pip install "scikit-learn>=1.4" "numpy>=1.24"
 ./.venv/Scripts/python.exe -m pytest -q
 ```
-Expect: the 31 data tests + the new labels/splits/metrics tests pass; the
-dataset/predict tests show as *skipped* (no torch locally). If anything fails, fix
-before Colab.
+Result: **48 passed, 2 skipped** (the dataset/predict tests skip — no torch locally),
+2 expected warnings (only bipolar/depression present on disk). Green; ready for Colab.
 
 **Step B — (optional) full local check.** Only if you want to run every test locally:
 `pip install -r requirements.txt` (⚠️ ~2 GB torch download on Windows — see the
@@ -173,16 +175,20 @@ CUDA-wheel note in `requirements.txt`), then `pytest -q`.
 2. Open `notebooks/train_colab.ipynb` in Colab, set runtime to **GPU**.
 3. Run cells top-to-bottom. Cell 6 is a seconds-long smoke test (tiny model); cell 7
    is the real MentalBERT fine-tune; cell 8 produces predictions + metrics.
-4. Results persist on Drive under `Models/`.
+4. Cell 9 prints the per-condition confusion matrix + precision/recall/F1 report and
+   writes `Models/predictions/confusion_matrix.csv`.
+5. Results persist on Drive under `Models/`.
 
-> **Note:** push this session's new files to GitHub first (`SoshanW/mental-health-screening-fyp`)
-> so the Colab `git clone` picks them up. Nothing has been committed yet.
+> **Note:** already handled — all code + the notebook are committed and pushed to
+> `SoshanW/mental-health-screening-fyp` (`main` @ `c8e79de`), so the Colab `git clone`
+> picks them up. Nothing further to push before training.
 
 ---
 
 ## 6. Known open items / caveats
 
-- **Nothing is verified yet** — deps uninstalled, no test/training run has executed.
+- **Code is verified; training is not.** Local test suite is green (§5 Step A), but no
+  MentalBERT fine-tune has run yet — the Colab run (Step C) is the outstanding item.
 - **SWMH data is still absent.** Only Low et al. Reddit data feeds the classifier
   today, and only 4 of 6 POC conditions have rows (**anxiety** and **suicidality**
   are missing — the split code warns but does not fail). Adding SWMH / the missing
@@ -191,7 +197,6 @@ CUDA-wheel note in `requirements.txt`), then `pytest -q`.
   confirmed on first run; `--model-name` is the escape hatch if the id has moved.
 - **Class imbalance** (~20:1 depression-heavy) is real; the baseline reports macro-F1
   precisely because of this. Handling the imbalance is a later step, not the baseline.
-- **Nothing committed to git yet** this session.
 
 ---
 
