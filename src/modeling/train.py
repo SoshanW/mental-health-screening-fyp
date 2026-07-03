@@ -29,6 +29,7 @@ The same code runs locally and on Colab -- only the ``--data-root`` /
 from __future__ import annotations
 
 import argparse
+import inspect
 from pathlib import Path
 
 import pandas as pd
@@ -128,14 +129,20 @@ def build_trainer(
         metric_for_best_model="macro_f1",
         report_to=[],
     )
-    return Trainer(
+    trainer_kwargs = dict(
         model=model,
         args=args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
         compute_metrics=compute_metrics,
-        tokenizer=tokenizer,
     )
+    # transformers >=4.46 renamed Trainer's ``tokenizer`` arg to ``processing_class``
+    # and 5.x removed the old name entirely. Pass whichever this version accepts.
+    if "processing_class" in inspect.signature(Trainer.__init__).parameters:
+        trainer_kwargs["processing_class"] = tokenizer
+    else:
+        trainer_kwargs["tokenizer"] = tokenizer
+    return Trainer(**trainer_kwargs)
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -211,7 +218,10 @@ def main(argv: list[str] | None = None) -> int:
 
     final_dir = artifacts.checkpoints_dir / "latest"
     trainer.save_model(str(final_dir))
-    trainer.tokenizer.save_pretrained(str(final_dir))
+    # ``processing_class`` (new) or ``tokenizer`` (old) holds the tokenizer to persist
+    # alongside the weights so predict.py can reload the checkpoint standalone.
+    saved_tokenizer = getattr(trainer, "processing_class", None) or getattr(trainer, "tokenizer", None)
+    saved_tokenizer.save_pretrained(str(final_dir))
     print(f"Saved checkpoint -> {final_dir}")
 
     metrics = trainer.evaluate()
