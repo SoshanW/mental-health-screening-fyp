@@ -39,6 +39,11 @@ def load_model(
     from transformers import AutoModelForSequenceClassification
 
     source = str(name_or_path) if name_or_path is not None else model_config.pretrained_name
+    # We deliberately replace the classification head to size it to the POC classes.
+    # ``ignore_mismatched_sizes=True`` lets us fine-tune from a checkpoint whose head
+    # has a different width (or none): the body loads, the head is re-initialized.
+    # Newer transformers raise instead of warn on this mismatch without the flag.
+    # It is a no-op when reloading our own saved checkpoint (head already sized right).
     return AutoModelForSequenceClassification.from_pretrained(
-        source, num_labels=model_config.num_labels
+        source, num_labels=model_config.num_labels, ignore_mismatched_sizes=True
     )
