@@ -92,6 +92,7 @@ def build_trainer(
     model_config: ModelConfig,
     train_config: TrainConfig,
     output_dir: Path,
+    save_steps: int | None = None,
     tokenizer: Tokenizer | None = None,
     model: object | None = None,
 ):
@@ -100,6 +101,11 @@ def build_trainer(
     ``tokenizer`` and ``model`` are injectable; when omitted they are loaded from
     ``model_config`` via :mod:`src.modeling.hf_model`. Injecting them lets a smoke
     test pass tiny fakes without a network download.
+
+    ``save_steps``: when > 0, checkpoint every N steps (``save_total_limit=2``) so a
+    dropped Colab session can resume mid-epoch; evaluation stays per-epoch and
+    best-model selection is disabled (strategies would otherwise have to align). When
+    ``None``/0, keep the default per-epoch save + best-model-at-end behavior.
     """
     from transformers import Trainer, TrainingArguments
 
@@ -113,6 +119,24 @@ def build_trainer(
     train_ds = TextClassificationDataset(train_df, tokenizer, model_config.max_length)
     val_ds = TextClassificationDataset(val_df, tokenizer, model_config.max_length)
 
+    if save_steps and save_steps > 0:
+        # Resilience mode: frequent step checkpoints for resume; eval stays per-epoch
+        # (cheap), so best-model-at-end is off since it needs matching strategies.
+        checkpoint_kwargs = dict(
+            save_strategy="steps",
+            save_steps=save_steps,
+            save_total_limit=2,
+            eval_strategy="epoch",
+            load_best_model_at_end=False,
+        )
+    else:
+        checkpoint_kwargs = dict(
+            save_strategy="epoch",
+            eval_strategy="epoch",
+            load_best_model_at_end=True,
+            metric_for_best_model="macro_f1",
+        )
+
     args = TrainingArguments(
         output_dir=str(output_dir),
         num_train_epochs=train_config.num_epochs,
@@ -123,11 +147,8 @@ def build_trainer(
         seed=train_config.seed,
         fp16=train_config.fp16,
         logging_steps=train_config.logging_steps,
-        eval_strategy="epoch",
-        save_strategy="epoch",
-        load_best_model_at_end=True,
-        metric_for_best_model="macro_f1",
         report_to=[],
+        **checkpoint_kwargs,
     )
     trainer_kwargs = dict(
         model=model,
@@ -161,6 +182,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--test-frac", type=float, default=SplitConfig().test_frac)
     p.add_argument("--max-train-samples", type=int, default=None,
                    help="Subsample the training frame (fast smoke runs).")
+    p.add_argument("--save-steps", type=int, default=None,
+                   help="Checkpoint every N steps (enables --resume; disables best-model "
+                        "selection). Omit for per-epoch saving.")
+    p.add_argument("--resume", action="store_true",
+                   help="Resume from the latest checkpoint under <artifacts>/checkpoints "
+                        "if one exists (e.g. after a dropped Colab session).")
     p.add_argument("--include-interviewer", action="store_true",
                    help="Keep Ellie's DAIC turns (DAIC is excluded from this classifier anyway).")
     p.add_argument("--fp16", action="store_true", help="Mixed-precision (GPU).")
@@ -213,8 +240,26 @@ def main(argv: list[str] | None = None) -> int:
         model_config=model_config,
         train_config=train_config,
         output_dir=artifacts.checkpoints_dir,
+        save_steps=args.save_steps,
     )
-    trainer.train()
+
+    # Resume from the last checkpoint on disk (Drive) if asked and one exists.
+    resume_from = None
+    if args.resume:
+        from transformers.trainer_utils import get_last_checkpoint
+
+        last = (
+            get_last_checkpoint(str(artifacts.checkpoints_dir))
+            if artifacts.checkpoints_dir.exists()
+            else None
+        )
+        if last:
+            print(f"[resume] continuing from checkpoint: {last}")
+            resume_from = last
+        else:
+            print("[resume] no checkpoint found; starting from scratch")
+
+    trainer.train(resume_from_checkpoint=resume_from)
 
     final_dir = artifacts.checkpoints_dir / "latest"
     trainer.save_model(str(final_dir))
