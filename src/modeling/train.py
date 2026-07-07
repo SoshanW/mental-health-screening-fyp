@@ -91,8 +91,7 @@ def build_trainer(
     val_df: pd.DataFrame,
     model_config: ModelConfig,
     train_config: TrainConfig,
-    output_dir: Path,
-    save_steps: int | None = None,
+    output_dir: Path,    save_steps: int | None = None,
     tokenizer: Tokenizer | None = None,
     model: object | None = None,
 ):
