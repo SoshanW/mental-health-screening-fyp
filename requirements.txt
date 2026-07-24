@@ -9,7 +9,7 @@ pytest>=7.0
 # then run `pip install -r requirements.txt` (it keeps the CUDA torch).
 # On Google Colab torch is preinstalled with CUDA, so just install the rest.
 torch>=2.2
-transformers>=4.40
+transformers==5.14.1  # pinned to the tested version; keep in sync with the Colab install cell
 accelerate>=0.26.0
 scikit-learn>=1.4
 numpy>=1.24

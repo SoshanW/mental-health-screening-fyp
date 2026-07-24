@@ -7,6 +7,8 @@ import pytest
 
 from src.noise.clusterability import (
     ClusterabilityConfig,
+    compare_reports,
+    neighbor_distribution_to_frame,
     report_to_frame,
     run_clusterability_diagnostic,
 )
@@ -100,3 +102,84 @@ def test_report_frame_has_one_row_per_condition() -> None:
     frame = report_to_frame(report)
     assert set(frame["condition"]) == {"A", "B"}
     assert len(frame) == 2
+
+
+def test_chance_sums_to_one_and_matches_base_rates() -> None:
+    features, labels = _clustered_vs_scattered()
+    report = run_clusterability_diagnostic(
+        features, labels, ClusterabilityConfig(sample_size=len(labels), n_rounds=2, seed=0)
+    )
+    assert sum(report.chance.values()) == pytest.approx(1.0)
+    n = len(labels)
+    assert report.chance["A"] == pytest.approx((labels == "A").sum() / n)
+
+
+def _common_and_rare_tight_clusters() -> tuple[np.ndarray, np.ndarray]:
+    """A common class and a rare class, each a tight, well-separated blob.
+
+    Both are clusterable (per-neighbour agreement ~1.0), but the rare class has a
+    much lower base rate, so it should show a much higher lift. This mirrors the
+    D-034 finding: bipolar is rare yet distinctive, hence the highest lift.
+    """
+    rng = np.random.default_rng(3)
+    dim = 16
+    e0 = np.eye(dim, dtype=np.float32)[0]
+    e1 = np.eye(dim, dtype=np.float32)[1]
+    common = e0 + 0.01 * rng.standard_normal((150, dim)).astype(np.float32)
+    rare = e1 + 0.01 * rng.standard_normal((12, dim)).astype(np.float32)
+    features = np.vstack([common, rare])
+    labels = np.array(["common"] * len(common) + ["rare"] * len(rare))
+    return features, labels
+
+
+def test_lift_equals_agreement_over_chance() -> None:
+    features, labels = _common_and_rare_tight_clusters()
+    report = run_clusterability_diagnostic(
+        features, labels, ClusterabilityConfig(sample_size=len(labels), n_rounds=3, seed=1)
+    )
+    for c in report.lift:
+        assert report.lift[c] == pytest.approx(
+            report.per_neighbor_agreement[c] / report.chance[c]
+        )
+    # Both classes are clusterable, but the rare one is far more distinctive
+    # relative to its base rate (the D-034 bipolar phenomenon).
+    assert report.per_neighbor_agreement["rare"] > 0.9
+    assert report.lift["rare"] > report.lift["common"]
+
+
+def test_distribution_diagonal_matches_per_neighbor_agreement() -> None:
+    # With sample_size >= n and replace=False, every round samples all centres, so
+    # the pooled diagonal equals the per-round-averaged per-neighbour agreement.
+    features, labels = _clustered_vs_scattered()
+    report = run_clusterability_diagnostic(
+        features, labels, ClusterabilityConfig(sample_size=len(labels), n_rounds=2, seed=2)
+    )
+    dist = neighbor_distribution_to_frame(report)
+    for c in report.per_neighbor_agreement:
+        assert dist.loc[f"centre_{c}", f"neigh_{c}"] == pytest.approx(
+            report.per_neighbor_agreement[c]
+        )
+    # Each centre row of the distribution is a proper distribution.
+    for c in report.neighbor_label_distribution:
+        assert sum(report.neighbor_label_distribution[c].values()) == pytest.approx(1.0)
+
+
+def test_compare_reports_delta_and_zero_self_delta() -> None:
+    features, labels = _clustered_vs_scattered()
+    cfg = ClusterabilityConfig(sample_size=len(labels), n_rounds=3, seed=5)
+    ft = run_clusterability_diagnostic(features, labels, cfg, extractor="finetuned")
+
+    # Same features vs itself: delta is exactly zero.
+    same = compare_reports(ft, ft, name_a="finetuned", name_b="base")
+    assert same["delta_a_minus_b"].abs().max() == pytest.approx(0.0)
+
+    # Degrade B by shuffling features so neighbours no longer share labels; A's
+    # agreement should exceed the degraded run's, giving a positive delta.
+    rng = np.random.default_rng(9)
+    scrambled = features[rng.permutation(len(features))]
+    base = run_clusterability_diagnostic(scrambled, labels, cfg, extractor="base")
+    cmp = compare_reports(ft, base)
+    assert "agreement_finetuned" in cmp.columns
+    assert "agreement_base" in cmp.columns
+    a_row = cmp.loc[cmp["condition"] == "A", "delta_a_minus_b"].iloc[0]
+    assert a_row > 0

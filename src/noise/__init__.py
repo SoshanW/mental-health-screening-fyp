@@ -22,11 +22,14 @@ from .clusterability import (
     NOISY_LABEL_CAVEAT,
     ClusterabilityConfig,
     ClusterabilityReport,
+    compare_reports,
     format_report,
+    neighbor_distribution_to_frame,
     report_to_frame,
     run_clusterability_diagnostic,
 )
 from .embeddings import (
+    BASE_MODEL_ID,
     EmbeddingConfig,
     build_metadata_frame,
     default_embeddings_dir,
@@ -37,6 +40,7 @@ from .embeddings import (
 
 __all__ = [
     "EmbeddingConfig",
+    "BASE_MODEL_ID",
     "extract_pooled_embeddings",
     "build_metadata_frame",
     "save_embeddings",
@@ -46,6 +50,8 @@ __all__ = [
     "ClusterabilityReport",
     "run_clusterability_diagnostic",
     "report_to_frame",
+    "neighbor_distribution_to_frame",
+    "compare_reports",
     "format_report",
     "NOISY_LABEL_CAVEAT",
 ]

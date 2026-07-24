@@ -50,8 +50,22 @@ FEATURES_FILENAME: str = "features.npy"
 METADATA_FILENAME: str = "metadata.csv"
 
 #: Columns persisted next to the feature matrix. ``condition`` is the NOISY proxy
-#: label the clusterability diagnostic groups by; the rest are for traceability.
-METADATA_COLUMNS: tuple[str, ...] = ("row_index", "author_id", "source", "condition")
+#: label the clusterability diagnostic groups by; ``extractor`` records which model
+#: produced the features (D-035 control) so downstream analysis cannot silently mix
+#: fine-tuned and base embeddings; the rest are for traceability.
+METADATA_COLUMNS: tuple[str, ...] = (
+    "row_index",
+    "author_id",
+    "source",
+    "condition",
+    "extractor",
+)
+
+#: HF Hub id of base MentalBERT (no fine-tuning on this project's labels). Used by
+#: the D-035 control run. It is a GATED repo, so a Colab run with ``--extractor
+#: base`` needs the Hugging Face login (notebook step 4b); the fine-tuned run does
+#: not, because it loads a local checkpoint.
+BASE_MODEL_ID: str = "mental/mental-bert-base-uncased"
 
 
 @dataclass(frozen=True)
@@ -83,14 +97,25 @@ class EmbeddingConfig:
             raise ValueError("max_length and batch_size must be positive.")
 
 
-def default_embeddings_dir(artifacts: ArtifactPaths, split: str = "train") -> Path:
-    """Cache directory for a split's embeddings: ``<Models>/embeddings/<split>``.
+def default_embeddings_dir(
+    artifacts: ArtifactPaths, split: str = "train", extractor: str = "finetuned"
+) -> Path:
+    """Cache directory for a split's embeddings under ``<Models>/embeddings/``.
 
     Derived from :class:`ArtifactPaths.root` so it points at the Drive-backed
     ``Models/`` on Colab and the local ``Models/`` off it, without touching
     :class:`ArtifactPaths` itself.
+
+    DECISION (distinct paths per extractor): the fine-tuned run keeps the original
+    ``embeddings/<split>`` path so its existing D-034 cache is never overwritten;
+    any other extractor (e.g. base MentalBERT for the D-035 control) gets a
+    distinct sibling ``embeddings/<split>__<extractor>`` so the two feature sets
+    cannot clobber each other.
     """
-    return artifacts.root / "embeddings" / split
+    base = artifacts.root / "embeddings"
+    if extractor == "finetuned":
+        return base / split
+    return base / f"{split}__{extractor}"
 
 
 def extract_pooled_embeddings(
@@ -171,16 +196,19 @@ def extract_pooled_embeddings(
     return features.astype(embed_config.output_dtype, copy=False)
 
 
-def build_metadata_frame(df: pd.DataFrame) -> pd.DataFrame:
+def build_metadata_frame(df: pd.DataFrame, extractor: str = "finetuned") -> pd.DataFrame:
     """Assemble the per-row metadata persisted next to the feature matrix.
 
     ``row_index`` records the original position so alignment survives a reload even
-    if columns are reordered. Missing optional columns are filled with ``"unknown"``.
+    if columns are reordered. ``extractor`` stamps which model produced the features
+    (D-035 control) so a later comparison cannot silently mix extractors. Missing
+    optional columns are filled with ``"unknown"``.
     """
     n = len(df)
     out = pd.DataFrame({"row_index": np.arange(n, dtype="int64")})
     for col in ("author_id", "source", "condition"):
         out[col] = df[col].to_numpy() if col in df.columns else "unknown"
+    out["extractor"] = extractor
     return out[list(METADATA_COLUMNS)]
 
 
@@ -229,8 +257,12 @@ def load_embeddings(cache_dir: str | Path) -> tuple[np.ndarray, pd.DataFrame]:
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Extract + cache MentalBERT pooled embeddings.")
     p.add_argument("--artifacts-root", type=Path, default=None, help="Models dir (default <repo>/Models).")
+    p.add_argument("--extractor", type=str, default="finetuned", choices=("finetuned", "base"),
+                   help="Feature extractor: fine-tuned Milestone 0 checkpoint (default) or base "
+                        "MentalBERT (D-035 control, needs HF login on Colab).")
     p.add_argument("--checkpoint-dir", type=Path, default=None,
-                   help="Milestone 0 checkpoint (default <artifacts>/checkpoints/latest).")
+                   help="Override the model source (default: <artifacts>/checkpoints/latest for "
+                        "finetuned, the base MentalBERT hub id for base).")
     p.add_argument("--split", type=str, default="train", help="Which persisted split CSV to embed.")
     p.add_argument("--max-length", type=int, default=EmbeddingConfig().max_length)
     p.add_argument("--batch-size", type=int, default=EmbeddingConfig().batch_size)
@@ -243,7 +275,14 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     artifacts = ArtifactPaths(root=args.artifacts_root) if args.artifacts_root else ArtifactPaths.default()
-    checkpoint = args.checkpoint_dir or (artifacts.checkpoints_dir / "latest")
+
+    # Resolve the model source from the extractor choice (overridable).
+    if args.checkpoint_dir is not None:
+        source: str | Path = args.checkpoint_dir
+    elif args.extractor == "base":
+        source = BASE_MODEL_ID
+    else:
+        source = artifacts.checkpoints_dir / "latest"
 
     split_path = artifacts.splits_dir / f"{args.split}.csv"
     if not split_path.exists():
@@ -258,13 +297,13 @@ def main(argv: list[str] | None = None) -> int:
         output_dtype=args.output_dtype,
         device=args.device,
     )
-    features = extract_pooled_embeddings(df, checkpoint, ModelConfig(), embed_config)
-    metadata = build_metadata_frame(df)
+    features = extract_pooled_embeddings(df, source, ModelConfig(), embed_config)
+    metadata = build_metadata_frame(df, extractor=args.extractor)
 
-    cache_dir = default_embeddings_dir(artifacts, args.split)
+    cache_dir = default_embeddings_dir(artifacts, args.split, args.extractor)
     save_embeddings(cache_dir, features, metadata)
     print(
-        f"Wrote embeddings -> {cache_dir}  "
+        f"Wrote embeddings ({args.extractor}, source={source}) -> {cache_dir}  "
         f"({features.shape[0]} rows x {features.shape[1]} dims, {features.dtype})"
     )
     return 0

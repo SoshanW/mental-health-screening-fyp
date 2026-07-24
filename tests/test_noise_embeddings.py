@@ -6,10 +6,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.modeling.config import ArtifactPaths
 from src.noise.embeddings import (
     METADATA_COLUMNS,
     EmbeddingConfig,
     build_metadata_frame,
+    default_embeddings_dir,
     load_embeddings,
     save_embeddings,
 )
@@ -33,6 +35,24 @@ def test_build_metadata_frame_columns_and_row_index() -> None:
     assert list(meta.columns) == list(METADATA_COLUMNS)
     assert list(meta["row_index"]) == [0, 1, 2]
     assert list(meta["condition"]) == ["depression", "bipolar", "depression"]
+    assert list(meta["extractor"]) == ["finetuned"] * 3  # default
+
+
+def test_build_metadata_frame_stamps_custom_extractor() -> None:
+    df = pd.DataFrame({"text": ["a", "b"], "condition": ["bipolar", "depression"]})
+    meta = build_metadata_frame(df, extractor="base")
+    assert list(meta["extractor"]) == ["base", "base"]
+
+
+def test_default_embeddings_dir_distinct_per_extractor(tmp_path) -> None:
+    artifacts = ArtifactPaths(root=tmp_path)
+    finetuned = default_embeddings_dir(artifacts, "train", "finetuned")
+    base = default_embeddings_dir(artifacts, "train", "base")
+    # Fine-tuned keeps the original path; base is a distinct sibling so it cannot
+    # overwrite the D-034 cache.
+    assert finetuned == artifacts.root / "embeddings" / "train"
+    assert base != finetuned
+    assert base == artifacts.root / "embeddings" / "train__base"
 
 
 def test_save_load_round_trip(tmp_path) -> None:

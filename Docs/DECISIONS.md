@@ -91,6 +91,8 @@ Entries D-001 to D-019 are **reconstructed retrospectively on 2026-07-17** and a
 | D-031 | Do not prune the elicited set (preserve α_V = 0) | OPEN | C2 |
 | D-032 | Three-arm experiment as the core evaluation | ACTIVE | C2 |
 | D-033 | Read primary sources before any claim becomes load-bearing | ACTIVE | Scope |
+| D-034 | Clusterability diagnostic results: prediction falsified | ACTIVE | C1 |
+| D-035 | Base-embedding control run to quantify the fine-tuning artifact | ACTIVE | C1 |
 
 ---
 
@@ -557,6 +559,131 @@ Zhu, Song and Liu's Theorem 2 gives HOC's finite-sample rate, but only when the 
 **The insurance, and why the project is safe either way.** Add a **noise-heterogeneity sweep**: vary how unequal the true noise rates are synthetically and find where (c) overtakes (b), then locate the real data on that axis. Head-to-head, (c) > (b) is a coin flip that can be lost. With the sweep, losing is still a result: *"the coupling pays off above heterogeneity level h*, and Reddit proxy noise sits below it"* is a publishable, honest finding.
 
 **The same logic applies to the feasibility threshold.** If C2 works, the project has a method. If it degenerates to always abstaining on bipolar, the project has **the first characterisation of where this family of methods stops working on real mental-health proxy labels**. A project whose headline survives its own negative result is well designed, and that should be said in the defence.
+
+---
+
+## D-034 · Clusterability diagnostic results: the prediction was falsified
+**Date:** 2026-07-24 · **Status:** ACTIVE · **Category:** C1
+
+**The prediction.** Before running, the stated expectation was: 2-NN agreement
+would be high for depression and noticeably low for bipolar, and low bipolar
+agreement would be evidence that HOC's clusterability condition fails on this
+data. It was explicitly framed as a one-sided test: high bipolar agreement would
+falsify the clusterability-failure argument.
+
+**The result.** Run on MentalBERT embeddings from the Milestone 0 fine-tuned
+checkpoint. Reddit training split, 111,892 posts. |E| = 15,000, G = 20 rounds,
+negative cosine similarity, seed 0.
+
+| Condition | n/round | per-neighbour agreement | sd | chance | lift over chance |
+|---|---|---|---|---|---|
+| depression | 12,173 | 99.54% | 0.07% | 81.2% | 1.23x |
+| eating_disorder | 1,438 | 98.78% | 0.39% | 9.6% | 10.30x |
+| schizophrenia | 822 | 94.49% | 0.74% | 5.5% | 17.22x |
+| bipolar | 565 | **86.70%** | 1.10% | 3.8% | **23.00x** |
+
+**The prediction was wrong.** Bipolar agreement is 86.70%, inside and near the
+top of the 78 to 88 percent range Zhu, Song and Liu report for noisy CIFAR-10
+(their Table 3), a setting where HOC works. Bipolar also has the **highest** lift
+over chance of all four conditions at 23x, meaning bipolar posts are the most
+distinctive class in this embedding space relative to their base rate, not the
+least.
+
+**Same-author contamination ruled out.** Nearest neighbours share the centre
+post's author in under 0.1% of neighbour slots across all conditions (bipolar
+0.08%, depression 0.01%). Authors average roughly 1.1 posts each in the training
+split. The observed clustering is not an artifact of near-duplicate posts by the
+same person.
+
+**Neighbour label distribution given centre label** (row-normalised):
+
+| centre \ neighbour | bipolar | depression | eating_dis. | schizophrenia |
+|---|---|---|---|---|
+| bipolar | 0.8669 | **0.0995** | 0.0027 | 0.0310 |
+| depression | 0.0029 | 0.9954 | 0.0006 | 0.0011 |
+| eating_disorder | 0.0012 | 0.0101 | 0.9878 | 0.0008 |
+| schizophrenia | 0.0205 | **0.0324** | 0.0020 | 0.9450 |
+
+**One positive finding.** For both bipolar and schizophrenia centres, the
+dominant off-diagonal neighbour class is depression (9.95% and 3.24%
+respectively). This is directionally consistent with the clinical elicitation
+argument (bipolar-to-depression is the expected dominant confusion flow). It is
+weak evidence: it concerns embedding neighbourhoods rather than label noise
+directly, and the depression class is also the largest by a wide margin. Record
+it as consistent-with, not as support.
+
+**Two reasons the falsification is weaker than it first appears.**
+
+1. **Circular measurement.** The embeddings come from a model fine-tuned to
+   separate these four noisy labels. Agreement on noisy labels was measured in a
+   space optimised to separate noisy labels. Depression at 99.54% against Zhu et
+   al.'s 78 to 88 percent is the tell: the gap is the training objective showing
+   through. Zhu et al. also use noisy-label-trained extractors, but measure
+   feasibility against **true** labels, which breaks the circularity. That option
+   is not available here.
+
+2. **Structural blindness to the failure mode of interest.** Posts are
+   partitioned by their *noisy* label. A truly-bipolar person who posted in
+   r/depression sits in the depression row, indistinguishable from truly-depressed
+   posts. The bipolar row therefore measures only the self-identified subset,
+   those whose proxy label happened to be correct. The phase-predominance cases
+   the argument depends on are filed elsewhere by construction.
+
+**Integrity note, recorded deliberately.** Reason (2) is true a priori and should
+have been identified when the test was designed. It was articulated only after
+the result came back against the hypothesis. That is the structural shape of
+motivated reasoning, and it is logged as such so that a reader can discount it
+appropriately. The point stands or falls on its own merits, not on the timing of
+its appearance.
+
+**Consequence.** The claim that clusterability fails on this data currently has
+**no support from this project's own data.** It rests entirely on Zhu, Wang and
+Liu's (2022) published Table 2 results on other BERT corpora. That remains real
+published evidence from the method's own authors, but it is borrowed rather than
+measured.
+
+**What this promotes.** Stage 2 becomes the load-bearing diagnostic: HOC's
+stability across random seeds, and HOC-versus-cleanlab disagreement. Neither
+carries the circularity confound. **If HOC returns a stable and clinically
+plausible matrix on this data, D-030's premise is in trouble and C1 needs
+rethinking again.**
+
+**Links.** Tests the assumption behind D-030. Supersedes the framing in open
+item 2.
+
+---
+
+## D-035 · Base-embedding control run
+**Date:** 2026-07-24 · **Status:** ACTIVE · **Category:** C1
+
+**Decision.** Repeat the D-034 diagnostic using embeddings from **base
+MentalBERT** (`mental/mental-bert-base-uncased`, no fine-tuning on this
+project's four labels), as a control against the fine-tuned run.
+
+**What this does and does not establish.** It does **not** produce "the real
+clusterability number." Clusterability is defined over true labels, which are
+unavailable, so it cannot be measured directly by any run. What the control
+provides is the **delta**: the difference between fine-tuned and base agreement
+quantifies how much of the apparent structure in D-034 is an artifact of the
+training objective rather than intrinsic to the text.
+
+**Interpretation rule set in advance, to avoid post-hoc reasoning.**
+
+- If base bipolar agreement stays high (say above 70%), the clusterability-failure
+  argument is genuinely weak and should be **dropped rather than defended**. The
+  C1 justification then rests solely on Zhu, Wang and Liu (2022) plus whatever
+  Stage 2 shows.
+- If base bipolar agreement drops sharply (say below 40%), the fine-tuned number
+  was substantially artifact, and the honest report is that neither number
+  resolves clusterability but the space is far less separable than D-034 implied.
+
+**What this does NOT change.** HOC itself should still be run on the
+**fine-tuned** embeddings, because that matches HOC's own protocol: Zhu, Song and
+Liu take the feature extractor from a model trained to near-100% training
+accuracy on the noisy labels. Running HOC on base embeddings would handicap it
+unfairly and would not be a fair test of the method.
+
+**Links.** Controls for the confound identified in D-034.
 
 ---
 
