@@ -37,6 +37,15 @@ from .embeddings import (
     load_embeddings,
     save_embeddings,
 )
+from .hoc_estimate import (
+    HOCConfig,
+    HOCResult,
+    aggregate_results,
+    check_pre_registered_prediction,
+    estimate_hoc,
+    make_clusterable_noisy_data,
+    run_hoc_multiseed,
+)
 
 __all__ = [
     "EmbeddingConfig",
@@ -54,4 +63,11 @@ __all__ = [
     "compare_reports",
     "format_report",
     "NOISY_LABEL_CAVEAT",
+    "HOCConfig",
+    "HOCResult",
+    "estimate_hoc",
+    "run_hoc_multiseed",
+    "aggregate_results",
+    "check_pre_registered_prediction",
+    "make_clusterable_noisy_data",
 ]

@@ -268,6 +268,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=EmbeddingConfig().batch_size)
     p.add_argument("--output-dtype", type=str, default=EmbeddingConfig().output_dtype,
                    choices=("float16", "float32"))
+    p.add_argument("--output-dir", type=Path, default=None,
+                   help="Override the cache directory (default <Models>/embeddings/<split>[__<extractor>]). "
+                        "Use a distinct dir to keep, e.g., an fp32 base cache beside the fp16 one for the "
+                        "D-036 fp16-bounding comparison.")
     p.add_argument("--device", type=str, default=None)
     return p.parse_args(argv)
 
@@ -300,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
     features = extract_pooled_embeddings(df, source, ModelConfig(), embed_config)
     metadata = build_metadata_frame(df, extractor=args.extractor)
 
-    cache_dir = default_embeddings_dir(artifacts, args.split, args.extractor)
+    cache_dir = args.output_dir or default_embeddings_dir(artifacts, args.split, args.extractor)
     save_embeddings(cache_dir, features, metadata)
     print(
         f"Wrote embeddings ({args.extractor}, source={source}) -> {cache_dir}  "

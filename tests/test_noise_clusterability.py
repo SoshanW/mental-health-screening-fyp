@@ -94,6 +94,86 @@ def test_length_mismatch_raises() -> None:
         run_clusterability_diagnostic(features, labels)
 
 
+def _common_and_rare_separated(common_n: int = 300, rare_n: int = 15):
+    """A big common cluster and a small, well-separated rare cluster.
+
+    In the FULL dataset a rare post has plenty of same-class neighbours (high
+    agreement). In a small sampled E it is neighbour-starved (D-036), so within_e
+    agreement for the rare class is much lower.
+    """
+    rng = np.random.default_rng(4)
+    dim = 16
+    e0 = np.eye(dim, dtype=np.float32)[0]
+    e1 = np.eye(dim, dtype=np.float32)[1]
+    common = e0 + 0.01 * rng.standard_normal((common_n, dim)).astype(np.float32)
+    rare = e1 + 0.01 * rng.standard_normal((rare_n, dim)).astype(np.float32)
+    features = np.vstack([common, rare])
+    labels = np.array(["common"] * common_n + ["rare"] * rare_n)
+    return features, labels
+
+
+def test_within_e_agreement_is_lower_than_full_for_rare_class() -> None:
+    features, labels = _common_and_rare_separated()
+    # Small E so the rare class is neighbour-starved inside E.
+    within = run_clusterability_diagnostic(
+        features, labels,
+        ClusterabilityConfig(scope="within_e", sample_size=40, n_rounds=20, seed=0),
+    )
+    full = run_clusterability_diagnostic(
+        features, labels,
+        ClusterabilityConfig(scope="full_dataset", sample_size=40, n_rounds=20, seed=0),
+    )
+    assert within.scope == "within_e"
+    assert full.scope == "full_dataset"
+    # Full has the whole same-class pool available; within_e does not.
+    assert full.per_neighbor_agreement["rare"] > 0.9
+    assert within.per_neighbor_agreement["rare"] < 0.6
+    assert full.per_neighbor_agreement["rare"] > within.per_neighbor_agreement["rare"]
+
+
+def test_candidate_counts_match_pool_sizes() -> None:
+    features, labels = _common_and_rare_separated(common_n=300, rare_n=15)
+    e = 40
+    report = run_clusterability_diagnostic(
+        features, labels,
+        ClusterabilityConfig(scope="within_e", sample_size=e, n_rounds=30, seed=1),
+    )
+    # Full pool = exact class counts.
+    assert report.candidates_full["rare"] == 15
+    assert report.candidates_full["common"] == 300
+    # In-E pool averages |E| * chance (uniform sampling without replacement).
+    n = len(labels)
+    assert report.candidates_in_e["rare"] == pytest.approx(e * 15 / n, abs=1.5)
+    assert report.candidates_in_e["common"] == pytest.approx(e * 300 / n, abs=2.0)
+
+
+def test_scope_validation_and_min_sample() -> None:
+    with pytest.raises(ValueError, match="scope must be one of"):
+        ClusterabilityConfig(scope="whole_thing")
+    features, labels = _common_and_rare_separated(common_n=10, rare_n=5)
+    with pytest.raises(ValueError, match="within_e"):
+        run_clusterability_diagnostic(
+            features, labels, ClusterabilityConfig(scope="within_e", sample_size=2)
+        )
+
+
+def test_within_e_equals_full_when_e_covers_everything() -> None:
+    # When sample_size >= n every round samples the whole set, so the two scopes
+    # must agree exactly (the fitted pool is identical).
+    features, labels = _clustered_vs_scattered()
+    cfg_kwargs = dict(sample_size=len(labels), n_rounds=3, seed=7)
+    within = run_clusterability_diagnostic(
+        features, labels, ClusterabilityConfig(scope="within_e", **cfg_kwargs)
+    )
+    full = run_clusterability_diagnostic(
+        features, labels, ClusterabilityConfig(scope="full_dataset", **cfg_kwargs)
+    )
+    for c in within.per_neighbor_agreement:
+        assert within.per_neighbor_agreement[c] == pytest.approx(
+            full.per_neighbor_agreement[c]
+        )
+
+
 def test_report_frame_has_one_row_per_condition() -> None:
     features, labels = _clustered_vs_scattered()
     report = run_clusterability_diagnostic(

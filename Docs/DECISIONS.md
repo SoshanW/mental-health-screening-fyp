@@ -93,6 +93,7 @@ Entries D-001 to D-019 are **reconstructed retrospectively on 2026-07-17** and a
 | D-033 | Read primary sources before any claim becomes load-bearing | ACTIVE | Scope |
 | D-034 | Clusterability diagnostic results: prediction falsified | ACTIVE | C1 |
 | D-035 | Base-embedding control run to quantify the fine-tuning artifact | ACTIVE | C1 |
+| D-036 | Base-embedding control result and Stage 2 pre-registration | ACTIVE | C1 |
 
 ---
 
@@ -684,6 +685,163 @@ accuracy on the noisy labels. Running HOC on base embeddings would handicap it
 unfairly and would not be a fair test of the method.
 
 **Links.** Controls for the confound identified in D-034.
+
+---
+
+## D-036 · Base-embedding control result, and pre-registration for Stage 2
+**Date:** 2026-07-24 · **Status:** ACTIVE · **Category:** C1
+
+**The pre-registered rule (D-035) fired.** D-035 set the interpretation in
+advance: base bipolar agreement above roughly 70% means the clusterability
+argument should be dropped; below roughly 40% means the fine-tuned number in
+D-034 was substantially artifact. Base bipolar came in at 24 to 31% depending on
+neighbour search scope (see below). The rule fires on the second branch, on a
+threshold set before the data existed.
+
+**Result.** Base MentalBERT (`mental/mental-bert-base-uncased`, no fine-tuning on
+this project's labels), same protocol as D-034: |E| = 15,000, G = 20, negative
+cosine similarity.
+
+| Condition | base | fine-tuned | delta | base chance | base lift |
+|---|---|---|---|---|---|
+| depression | 94.5% | 99.5% | 5.0pp | 81.2% | 1.16x |
+| eating_disorder | 71.1% | 98.7% | 27.6pp | 9.6% | 7.45x |
+| schizophrenia | 41.2% | 94.6% | 53.4pp | 5.5% | 7.53x |
+| bipolar | **29.3%** | **86.7%** | **57.4pp** | 3.8% | 7.77x |
+
+**The pattern is the finding.** Fine-tuning moved depression by 5pp and bipolar
+by 57pp. It did almost nothing for the class that was already separable and
+manufactured nearly all of the apparent structure for the rare ones. In base
+space all three rare conditions sit at a similar lift over chance (roughly 7.5x),
+meaning the *differential* clusterability seen in D-034 was an artifact of the
+training objective rather than a property of the text.
+
+**Base neighbour label distribution given centre label:**
+
+| centre \ neighbour | bipolar | depression | eating_dis. | schizophrenia |
+|---|---|---|---|---|
+| bipolar | 0.2445 | 0.6318 | 0.0299 | 0.0938 |
+| schizophrenia | 0.0915 | 0.5232 | 0.0296 | 0.3556 |
+
+In label-agnostic space, the majority of a bipolar post's nearest neighbours
+carry the depression label. **Caveat that must be stated in the thesis:**
+depression is 81.2% of the pool, so 63% is *below* chance. The honest reading is
+that bipolar posts cluster with bipolar at roughly 6.5x chance, but in absolute
+terms most of their neighbours are still depression posts. HOC's condition is
+about **absolute** clusterability, not lift, so the relevant figure is 24 to 31%
+against the 78 to 88% range where Zhu, Song and Liu validate the method.
+
+---
+
+**Neighbour search scope: diagnosis of a reproduction discrepancy.**
+
+An independent reproduction agreed with the pipeline to within 0.1pp on the
+fine-tuned features but came in roughly 5pp lower on the three rare conditions in
+base space. The cause was initially attributed to fp16 precision. **That was
+wrong.** The cause is neighbour search scope: the pipeline searches for 2-NN over
+the **full dataset** (111,892 posts), while the reproduction searched **within the
+sampled subset E** (15,000 posts). Measured directly, holding everything else
+fixed:
+
+| Condition | within-E | full-dataset | scope effect |
+|---|---|---|---|
+| bipolar | 26.9% | 30.9% | +4.0pp |
+| depression | 94.2% | 94.7% | +0.5pp |
+| eating_disorder | 66.9% | 72.3% | +5.4pp |
+| schizophrenia | 33.5% | 39.9% | +6.4pp |
+
+This reproduces the observed discrepancy in both sign and magnitude.
+
+**Which scope is correct.** HOC searches within E, deliberately:
+`n1 = arg min over n' in E, n' != n`. Zhu, Song and Liu restrict it to preserve
+the i.i.d. property of the 3-tuples so the consensus estimates stay consistent,
+and go further with their E*_3 disjointness condition. For a diagnostic intended
+to characterise HOC's operating regime, **within-E is the correct scope**, and the
+pipeline as originally written measures something slightly easier than what HOC
+faces. Both are reported; within-E is primary.
+
+**A finding inside that discrepancy.** The scope change costs 4 to 6pp on the
+rare conditions but only 0.5pp on depression. At |E| = 15,000, a bipolar post has
+roughly 566 same-class candidates to match against, versus 4,221 in the full
+data. **The rare conditions are neighbour-starved in exactly the regime HOC
+operates in.** This is an independent difficulty, separate from clusterability
+itself, and belongs in the C3 limits analysis.
+
+**On fp16, since it was the original hypothesis.** Median gap between the 2nd and
+3rd nearest similarity, against an fp16 dot-product error scale of roughly 1e-3
+for 768-dimensional unit vectors:
+
+| Space | bipolar | depression | eating_dis. | schizophrenia |
+|---|---|---|---|---|
+| base | 0.00204 | 0.00187 | 0.00329 | 0.00286 |
+| fine-tuned | 0.00049 | 0.00029 | 0.00014 | 0.00023 |
+
+Counterintuitively the **fine-tuned** space is the fp16-vulnerable one: its median
+gaps sit below the error scale, so neighbour ordering there is substantially
+numerical noise. It does not materially affect the agreement statistic, because
+in that space almost every near-neighbour carries the same label anyway, so
+reordering near-ties rarely changes the outcome. This is why the two runs matched
+to 0.1pp on fine-tuned features. In base space the gaps are 2 to 3x the error
+scale, so less reordering occurs, but labels are heterogeneous so any reordering
+does move the number. A single fp32 pass is scheduled to bound the effect.
+
+---
+
+**The sharpened argument this enables.** HOC estimates T from the frequency of
+*disagreement* among neighbours' noisy labels; its consensus equations fit T to
+observed agreement patterns. If the feature extractor has been trained to make
+those labels agree, the disagreement signal is suppressed and HOC will fit a T
+close to identity.
+
+Zhu et al. do not encounter this on CIFAR because their noise is **synthetic and
+feature-independent**: the true class structure remains in the image regardless
+of the label flip. This project's noise is **feature-dependent**. A truly-bipolar
+person writing during a depressive episode produces text that genuinely resembles
+depression, so a model fine-tuned on proxy labels learns to separate the
+self-selection behaviour rather than the condition. The measurement above
+supports this: fine-tuning created 57pp of bipolar clusterability that was not
+present in the text.
+
+The gap-distribution table adds independent support. In fine-tuned space the
+classes have collapsed into blobs where within-cluster distances are near-uniform
+(median gaps of 0.0001 to 0.0005), so which two neighbours HOC selects is close to
+arbitrary-within-class. The consensus patterns it counts will therefore be
+overwhelmingly within-class agreement.
+
+This is an argument with measurement behind it, not a proof. Stage 2 is what
+would convert it.
+
+---
+
+**PRE-REGISTERED PREDICTION FOR STAGE 2.** Recorded before the HOC run, so the
+interpretation cannot be fitted to the result. This is the discipline whose
+absence is recorded in D-034.
+
+*Prediction:* HOC run on the **fine-tuned** embeddings returns diagonal entries
+above roughly 0.85 for all four conditions, implying substantially less label
+noise than the clinical literature suggests for bipolar, because the disagreement
+signal the estimator depends on has been suppressed by the fine-tuning.
+
+*Falsifier:* HOC returns a bipolar diagonal below roughly 0.7, with a dominant
+bipolar-to-depression off-diagonal, stable across random seeds. If that occurs,
+HOC is working on this data and the clusterability line of argument should be
+dropped entirely rather than defended.
+
+*Fallback if falsified:* the C1 argument does not depend on HOC failing. Even a
+well-behaved HOC produces a **point estimate**, while Sesia's Theorem 4 consumes
+a **confidence region**, and HOC's own finite-sample rate (their Theorem 2) is
+derived under a uniform-off-diagonal assumption that is unsatisfiable at three of
+the four class prevalences here (see D-018). That argument concerns what
+Algorithm 2 requires as input, not estimation quality, and survives either
+outcome.
+
+*Consistency check available:* Zhu, Wang and Liu (2022) report HOC scoring 14.25
+on Jigsaw where the trivial identity assumption scores 11.1. HOC being worse than
+assuming no noise is what a suppressed-disagreement failure looks like.
+
+**Links.** Fires the D-035 pre-registered rule. Sets the pre-registration for
+Stage 2 (`src/noise/hoc_estimate.py`). The scope correction is implemented in
+`src/noise/clusterability.py` per this entry.
 
 ---
 
