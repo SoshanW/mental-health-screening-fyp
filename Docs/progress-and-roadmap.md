@@ -205,10 +205,22 @@ CUDA-wheel note in `requirements.txt`), then `pytest -q`.
 This baseline is **rung 1**. The full contribution (per
 `Docs/technical-contribution-in-depth.md`) is three coupled pieces:
 
+> **SUPERSEDED (2026-07-24) - see `DECISIONS.md` D-030.** The C1 row below was
+> originally written as an *estimation* task ("estimate a per-condition transition
+> matrix via Confident Learning with clinically-seeded priors"). That framing was
+> reversed on 2026-07-17. C1 is now a **diagnostic**, not an estimator: it runs the
+> available no-clean-data estimators (cleanlab's Confident Learning and the HOC
+> clusterability estimator) on the real data and demonstrates that they fail,
+> disagree across seeds, or return clinically implausible matrices. That measured
+> failure is what licenses the clinical-elicitation route in C2. The reversal was
+> forced by D-024 (HOC recovers a matrix with no clean data) and is strengthened by
+> D-018 and the "Beyond images" evidence in D-030. Original text kept struck through
+> below for traceability. Authoritative source: `DECISIONS.md` D-030.
+
 | Phase | What it is | What it gives |
 |---|---|---|
 | **Now: Baseline (C0)** | Naive MentalBERT multi-class fine-tune on proxy labels; raw softmax confidence | The reference point every later method must beat; the softmax outputs that feed noise estimation |
-| **C1 — Condition-dependent noise model** | Estimate a per-condition label-noise transition matrix `T` via Confident Learning (`cleanlab`), with clinically-seeded priors; state identifiability conditions | A principled estimate of *how unreliable each condition's proxy label is* (e.g. bipolar noisier than depression) |
+| **C1 - noise-estimator diagnostic** | ~~Estimate a per-condition label-noise transition matrix `T` via Confident Learning (`cleanlab`), with clinically-seeded priors; state identifiability conditions~~ **(SUPERSEDED, D-030)** Run HOC + `cleanlab` on the real data and measure whether the no-clean-data estimators are usable: 2-NN clusterability agreement per condition, seed-stability, and clinical plausibility of the recovered matrix | ~~A principled estimate of how unreliable each condition's proxy label is~~ **(SUPERSEDED, D-030)** Evidence that the estimators break on the rare conditions (bipolar, schizophrenia), which is what justifies C2's clinical elicitation rather than an estimated matrix |
 | **C2 — Noise-coupled calibrated abstention** | Temperature-scale for calibration; make the per-condition abstention threshold a function of C1's noise estimate | A system that abstains most on the conditions where labels were least trustworthy — lower selective risk at matched coverage |
 | **C3 — Identifiability-under-shift eval** | Synthetic recovery test + per-condition degradation curves + Reddit→clinical (DAIC) shift evaluation | Evidence for *where and why* the method breaks down, matched against C1's theory |
 | **Optional — symptom-alignment signal** | Per-post DSM-5/ICD-11 symptom-match score as an extra noise-model feature | Finer, per-post label-reliability estimate (ablation dimension, droppable) |
@@ -222,8 +234,12 @@ each under shift.
 
 **Concrete next coding increments after the baseline is verified & trained:**
 1. Save/inspect the baseline's held-out softmax + a confusion matrix per condition.
-2. Add a `src/noise/` layer: out-of-fold prediction generation + `cleanlab` transition
-   matrix estimation (C1).
+2. ~~Add a `src/noise/` layer: out-of-fold prediction generation + `cleanlab` transition
+   matrix estimation (C1).~~ **(reframed per D-030)** Add a `src/noise/` **diagnostic**
+   layer: extract MentalBERT pooled embeddings for the Reddit training split
+   (`embeddings.py`), then measure per-condition 2-NN clusterability agreement
+   (`clusterability.py`, DECISIONS.md open item 2). Next: run `cleanlab` /  HOC and
+   compare recovered matrices for disagreement and seed-instability.
 3. Add calibration + selective-prediction utilities (C2), initially with a uniform
    threshold, then noise-coupled.
 4. Wire the DAIC held-out set into a shift-evaluation script (C3).
